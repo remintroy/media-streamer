@@ -43,9 +43,17 @@ function createFolderCard(folder) {
   `;
 }
 
+// Get stream URL for a file
+function getStreamUrl(filePath) {
+  return `${window.location.origin}/media/${encodeURIComponent(filePath)}`;
+}
+
 // Create file card
 function createFileCard(file) {
   const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+  const streamUrl = getStreamUrl(filePath);
+  const vlcUrl = `vlc://${streamUrl}`;
+
   return `
     <div class="card file-card" data-name="${escapeHtml(
       file.name.toLowerCase()
@@ -58,9 +66,8 @@ function createFileCard(file) {
         </div>
       </div>
       <div class="card-actions">
-        <a href="/media/${encodeURIComponent(
-          filePath
-        )}" target="_blank" class="btn btn-primary">Play</a>
+        <a href="${streamUrl}" target="_blank" class="btn btn-primary">Play</a>
+        <a href="${vlcUrl}" class="btn btn-vlc">VLC</a>
         <a href="/single.m3u?file=${encodeURIComponent(
           filePath
         )}" download class="btn btn-secondary">M3U</a>
