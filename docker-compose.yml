@@ -1,0 +1,24 @@
+version: '3'
+services:
+  movie-server:
+    image: node:20-alpine
+    container_name: movie-server
+    ports:
+      - "8080"
+    volumes:
+      - ${MEDIA_PATH}:/data:ro
+      - ./server.js:/app/server.js:ro
+      - ./package.json:/app/package.json:ro
+      - ./public:/app/public:ro
+    working_dir: /app
+    command: sh -c "npm install --omit=dev && node server.js"
+    restart: unless-stopped
+    environment:
+      - MEDIA_PATH=/data
+      - PORT=8080
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
