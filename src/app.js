@@ -8,7 +8,7 @@ import { apiRouter } from './routes/api.js';
 import { mediaController } from './controllers/mediaController.js';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(__filename) || process.cwd();
 // Root is one level up from src
 const rootDir = path.join(__dirname, '..');
 
