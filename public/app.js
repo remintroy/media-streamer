@@ -47,6 +47,22 @@ function createFolderCard(folder) {
 function getStreamUrl(filePath) {
   return `${window.location.origin}/media/${encodeURIComponent(filePath)}`;
 }
+// Copy to clipboard
+async function copyToClipboard(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const originalText = btn.innerHTML;
+    btn.innerHTML = "✓ Copied";
+    btn.classList.add("btn-success");
+
+    setTimeout(() => {
+      btn.innerHTML = originalText;
+      btn.classList.remove("btn-success");
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy", err);
+  }
+}
 
 // Create file card
 function createFileCard(file) {
@@ -68,6 +84,7 @@ function createFileCard(file) {
       <div class="card-actions">
         <a href="${streamUrl}" target="_blank" class="btn btn-primary">Play</a>
         <a href="${vlcUrl}" class="btn btn-vlc">VLC</a>
+        <button onclick="copyToClipboard('${streamUrl}', this)" class="btn btn-secondary">🔗 Copy</button>
         <a href="/single.m3u?file=${encodeURIComponent(
           filePath
         )}" download class="btn btn-secondary">M3U</a>
