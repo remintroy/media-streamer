@@ -23,8 +23,46 @@ const VIDEO_EXTENSIONS = [
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, "public")));
 
-// Scan directory recursively for video files
-async function scanMediaFiles(dir, baseDir = dir) {
+// List directory contents (folders and video files)
+async function listDirectory(dirPath) {
+  const items = { folders: [], files: [] };
+
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+
+      if (entry.isDirectory()) {
+        items.folders.push({
+          name: entry.name,
+          type: "folder",
+        });
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (VIDEO_EXTENSIONS.includes(ext)) {
+          const stats = await fs.stat(fullPath);
+          items.files.push({
+            name: entry.name,
+            type: "file",
+            size: stats.size,
+          });
+        }
+      }
+    }
+
+    // Sort alphabetically
+    items.folders.sort((a, b) => a.name.localeCompare(b.name));
+    items.files.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error(`Error listing ${dirPath}:`, err.message);
+  }
+
+  return items;
+}
+
+// Recursively get all video files for playlist generation
+async function getAllFiles(dir, baseDir = dir) {
   const files = [];
 
   try {
@@ -34,16 +72,14 @@ async function scanMediaFiles(dir, baseDir = dir) {
       const fullPath = path.join(dir, entry.name);
 
       if (entry.isDirectory()) {
-        files.push(...(await scanMediaFiles(fullPath, baseDir)));
+        files.push(...(await getAllFiles(fullPath, baseDir)));
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
         if (VIDEO_EXTENSIONS.includes(ext)) {
           const relativePath = path.relative(baseDir, fullPath);
-          const urlPath = "/media/" + relativePath.split(path.sep).join("/");
-
           files.push({
             title: entry.name,
-            url: urlPath,
+            url: "/media/" + relativePath.split(path.sep).join("/"),
             path: relativePath,
             size: (await fs.stat(fullPath)).size,
           });
@@ -69,19 +105,70 @@ function generateM3U(files, baseUrl) {
   return playlist;
 }
 
-// Format file size
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024)
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-}
+// API: Browse directory
+app.get("/api/browse", async (req, res) => {
+  try {
+    const relativePath = req.query.path || "";
+    const fullPath = path.join(MEDIA_PATH, relativePath);
 
-// Routes
+    // Security check
+    const resolved = path.resolve(fullPath);
+    if (!resolved.startsWith(path.resolve(MEDIA_PATH))) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    // Check if path exists
+    try {
+      await fs.access(fullPath);
+    } catch {
+      return res.status(404).json({ error: "Path not found" });
+    }
+
+    const stats = await fs.stat(fullPath);
+    if (!stats.isDirectory()) {
+      return res.status(400).json({ error: "Not a directory" });
+    }
+
+    const items = await listDirectory(fullPath);
+
+    // Add path info
+    const pathParts = relativePath
+      ? relativePath.split("/").filter(Boolean)
+      : [];
+
+    res.json({
+      currentPath: relativePath,
+      pathParts: pathParts,
+      ...items,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Get all files (for stats)
+app.get("/api/files", async (req, res) => {
+  try {
+    const files = await getAllFiles(MEDIA_PATH);
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Full playlist
 app.get("/playlist.m3u", async (req, res) => {
   try {
-    const files = await scanMediaFiles(MEDIA_PATH);
+    const relativePath = req.query.path || "";
+    const fullPath = path.join(MEDIA_PATH, relativePath);
+
+    // Security check
+    const resolved = path.resolve(fullPath);
+    if (!resolved.startsWith(path.resolve(MEDIA_PATH))) {
+      return res.status(403).send("Forbidden");
+    }
+
+    const files = await getAllFiles(fullPath);
     const baseUrl = `${req.protocol}://${req.get("host")}`;
 
     res.setHeader("Content-Type", "audio/x-mpegurl");
@@ -92,6 +179,7 @@ app.get("/playlist.m3u", async (req, res) => {
   }
 });
 
+// Single file playlist
 app.get("/single.m3u", async (req, res) => {
   try {
     const filePath = req.query.file;
@@ -99,33 +187,21 @@ app.get("/single.m3u", async (req, res) => {
       return res.status(400).send("Missing file parameter");
     }
 
-    const files = await scanMediaFiles(MEDIA_PATH);
-    const matching = files.filter((f) => f.path === filePath);
-
-    if (matching.length === 0) {
-      return res.status(404).send("File not found");
-    }
-
     const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const filename = matching[0].title.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const title = path.basename(filePath);
+    const url = "/media/" + filePath.split(path.sep).join("/");
+
+    const playlist = `#EXTM3U\n\n#EXTINF:-1,${title}\n${baseUrl}${url}\n`;
+    const filename = title.replace(/[^a-zA-Z0-9.-]/g, "_");
 
     res.setHeader("Content-Type", "audio/x-mpegurl");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename=${filename}.m3u`
     );
-    res.send(generateM3U(matching, baseUrl));
+    res.send(playlist);
   } catch (err) {
     res.status(500).send("Error generating playlist: " + err.message);
-  }
-});
-
-app.get("/api/files", async (req, res) => {
-  try {
-    const files = await scanMediaFiles(MEDIA_PATH);
-    res.json(files);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 

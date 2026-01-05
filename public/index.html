@@ -23,6 +23,11 @@
         </div>
       </header>
 
+      <!-- Breadcrumb Navigation -->
+      <nav class="breadcrumb" id="breadcrumb">
+        <a href="#" class="breadcrumb-item" data-path="">Home</a>
+      </nav>
+
       <div class="toolbar">
         <div class="search-wrapper">
           <svg
@@ -39,10 +44,15 @@
             type="text"
             id="search"
             class="search"
-            placeholder="Search videos..."
+            placeholder="Search in current folder..."
           />
         </div>
-        <a href="/playlist.m3u" download class="btn btn-primary">
+        <a
+          href="/playlist.m3u"
+          id="downloadPlaylist"
+          download
+          class="btn btn-primary"
+        >
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -60,7 +70,7 @@
       <div class="grid" id="grid">
         <div class="loading">
           <div class="spinner"></div>
-          <p>Loading videos...</p>
+          <p>Loading...</p>
         </div>
       </div>
     </div>

@@ -1,11 +1,14 @@
 // State
-let videos = [];
+let currentPath = "";
+let currentItems = { folders: [], files: [] };
 
 // DOM Elements
 const grid = document.getElementById("grid");
 const search = document.getElementById("search");
+const breadcrumb = document.getElementById("breadcrumb");
 const videoCount = document.getElementById("videoCount");
 const totalSize = document.getElementById("totalSize");
+const downloadPlaylist = document.getElementById("downloadPlaylist");
 
 // Format bytes to human readable
 function formatSize(bytes) {
@@ -22,66 +25,158 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Create video card
-function createCard(video) {
+// Create folder card
+function createFolderCard(folder) {
+  const folderPath = currentPath
+    ? `${currentPath}/${folder.name}`
+    : folder.name;
   return `
-    <div class="card" data-title="${escapeHtml(video.title.toLowerCase())}">
-      <div class="card-title">${escapeHtml(video.title)}</div>
-      <div class="card-meta">${formatSize(video.size)}</div>
+    <div class="card" onclick="navigate('${escapeHtml(folderPath)}')">
+      <div class="card-content">
+        <div class="card-icon folder">📁</div>
+        <div class="card-info">
+          <div class="card-title">${escapeHtml(folder.name)}</div>
+          <div class="card-meta">Folder</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Create file card
+function createFileCard(file) {
+  const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+  return `
+    <div class="card file-card" data-name="${escapeHtml(
+      file.name.toLowerCase()
+    )}">
+      <div class="card-content">
+        <div class="card-icon file">🎬</div>
+        <div class="card-info">
+          <div class="card-title">${escapeHtml(file.name)}</div>
+          <div class="card-meta">${formatSize(file.size)}</div>
+        </div>
+      </div>
       <div class="card-actions">
-        <a href="${video.url}" target="_blank" class="btn btn-primary">Play</a>
+        <a href="/media/${encodeURIComponent(
+          filePath
+        )}" target="_blank" class="btn btn-primary">Play</a>
         <a href="/single.m3u?file=${encodeURIComponent(
-          video.path
+          filePath
         )}" download class="btn btn-secondary">M3U</a>
       </div>
     </div>
   `;
 }
 
-// Render videos
+// Render current directory
 function render(items) {
-  if (items.length === 0) {
-    grid.innerHTML = '<div class="empty">No videos found</div>';
+  const folders = items.folders || [];
+  const files = items.files || [];
+
+  if (folders.length === 0 && files.length === 0) {
+    grid.innerHTML = '<div class="empty">This folder is empty</div>';
     return;
   }
-  grid.innerHTML = items.map(createCard).join("");
+
+  const html = [
+    ...folders.map(createFolderCard),
+    ...files.map(createFileCard),
+  ].join("");
+
+  grid.innerHTML = html;
 }
 
-// Update stats
-function updateStats(items) {
-  const count = items.length;
-  const size = items.reduce((sum, v) => sum + v.size, 0);
-  videoCount.textContent = `${count} video${count !== 1 ? "s" : ""}`;
-  totalSize.textContent = formatSize(size);
+// Render breadcrumb
+function renderBreadcrumb(pathParts) {
+  let html =
+    '<a href="#" class="breadcrumb-item" onclick="navigate(\'\'); return false;">Home</a>';
+
+  let accumulated = "";
+  for (const part of pathParts) {
+    accumulated = accumulated ? `${accumulated}/${part}` : part;
+    html += `<span class="breadcrumb-separator">/</span>`;
+    html += `<a href="#" class="breadcrumb-item" onclick="navigate('${escapeHtml(
+      accumulated
+    )}'); return false;">${escapeHtml(part)}</a>`;
+  }
+
+  breadcrumb.innerHTML = html;
 }
 
-// Filter videos by search query
-function filterVideos(query) {
+// Navigate to path
+async function navigate(path) {
+  currentPath = path;
+  search.value = "";
+
+  // Update playlist download link
+  downloadPlaylist.href = path
+    ? `/playlist.m3u?path=${encodeURIComponent(path)}`
+    : "/playlist.m3u";
+
+  grid.innerHTML =
+    '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
+
+  try {
+    const response = await fetch(
+      `/api/browse?path=${encodeURIComponent(path)}`
+    );
+    if (!response.ok) throw new Error("Failed to load");
+
+    const data = await response.json();
+    currentItems = { folders: data.folders, files: data.files };
+
+    renderBreadcrumb(data.pathParts || []);
+    render(currentItems);
+  } catch (error) {
+    console.error("Error:", error);
+    grid.innerHTML = '<div class="empty">Failed to load directory</div>';
+  }
+}
+
+// Filter current items
+function filterItems(query) {
   const q = query.toLowerCase().trim();
-  if (!q) return videos;
-  return videos.filter((v) => v.title.toLowerCase().includes(q));
+  if (!q) {
+    render(currentItems);
+    return;
+  }
+
+  const filtered = {
+    folders: currentItems.folders.filter((f) =>
+      f.name.toLowerCase().includes(q)
+    ),
+    files: currentItems.files.filter((f) => f.name.toLowerCase().includes(q)),
+  };
+
+  render(filtered);
 }
 
 // Handle search input
 search.addEventListener("input", (e) => {
-  const filtered = filterVideos(e.target.value);
-  render(filtered);
+  filterItems(e.target.value);
 });
 
-// Load videos from API
-async function loadVideos() {
+// Load total stats
+async function loadStats() {
   try {
     const response = await fetch("/api/files");
-    if (!response.ok) throw new Error("Failed to load");
+    if (!response.ok) return;
 
-    videos = await response.json();
-    updateStats(videos);
-    render(videos);
+    const files = await response.json();
+    const count = files.length;
+    const size = files.reduce((sum, v) => sum + v.size, 0);
+
+    videoCount.textContent = `${count} video${count !== 1 ? "s" : ""}`;
+    totalSize.textContent = formatSize(size);
   } catch (error) {
-    console.error("Error:", error);
-    grid.innerHTML = '<div class="empty">Failed to load videos</div>';
+    console.error("Error loading stats:", error);
   }
 }
 
+// Make navigate globally accessible
+window.navigate = navigate;
+
 // Initialize
-loadVideos();
+navigate("");
+loadStats();
