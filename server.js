@@ -21,7 +21,7 @@ const VIDEO_EXTENSIONS = [
 ];
 
 // Serve static files from public directory
-app.use(express.static(path.join(__dirname, "public")));
+app.use("/", express.static(path.join(__dirname, "public")));
 
 // List directory contents (folders and video files)
 async function listDirectory(dirPath) {
